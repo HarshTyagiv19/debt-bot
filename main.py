@@ -34,7 +34,7 @@ def test_call():
 async def incoming(request: Request):
     response = VoiceResponse()
     gather = Gather(
-        input='speech dtmf',
+        input='speech',
         action='/respond',
         timeout=8,
         method='POST'
@@ -42,7 +42,7 @@ async def incoming(request: Request):
     gather.say(
         "Namaste! Main ABC Finance se bol raha hun. "
         "Aapki ek payment pending hai. "
-        "Kya aap abhi baat kar sakte hain? Haan kehne ke liye 1 dabayein.",
+        "Kya aap abhi baat kar sakte hain? ",
         voice='Polly.Aditi-Neural'
     )
     response.append(gather)
@@ -84,7 +84,7 @@ If customer says busy: say will call later.""",
 
         response = VoiceResponse()
         gather = Gather(
-            input='speech dtmf',
+            input='speech',
             action='/respond',
             timeout=8,
             method='POST'
