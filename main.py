@@ -34,7 +34,7 @@ def test_call():
 async def incoming(request: Request):
     response = VoiceResponse()
     gather = Gather(
-        input='speech',
+        input='speech dtmf',
         action='/respond',
         timeout=8,
         method='POST'
@@ -84,7 +84,7 @@ If customer says busy: say will call later.""",
 
         response = VoiceResponse()
         gather = Gather(
-            input='speech',
+            input='speech dtmf',
             action='/respond',
             timeout=8,
             method='POST'
