@@ -100,4 +100,4 @@ If customer says busy: say will call later.""",
         response.say(f"Error: {str(e)[:50]}", voice='alice')
         response.hangup()
         return PlainTextResponse(str(response), media_type="application/xml")
-    if __name__ == "__main__":
+    
