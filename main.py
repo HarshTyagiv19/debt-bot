@@ -35,7 +35,7 @@ async def incoming(request: Request):
     response = VoiceResponse()
     gather = Gather(
         input='speech dtmf',
-        action='/respond',
+        action='https://debt-bot-production-57d7.up.railway.app/respond',
         timeout=8,
         method='POST'
     )
@@ -85,7 +85,7 @@ If customer says busy: say will call later.""",
         response = VoiceResponse()
         gather = Gather(
             input='speech dtmf',
-            action='/respond',
+            action='https://debt-bot-production-57d7.up.railway.app/respond',
             timeout=8,
             method='POST'
         )
