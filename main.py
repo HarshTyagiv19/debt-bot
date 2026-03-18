@@ -23,7 +23,7 @@ def test_call():
         call = twilio_client.calls.create(
             to=os.getenv("MY_PHONE_NUMBER"),
             from_=os.getenv("TWILIO_PHONE_NUMBER"),
-            url=f"{ngrok_url}/incoming"
+            url="https://debt-bot-production-57d7.up.railway.app/incoming"
         )
         return {"message": "Call ja rahi hai!", "sid": call.sid}
     except Exception as e:
@@ -100,4 +100,4 @@ If customer says busy: say will call later.""",
         response.say(f"Error: {str(e)[:50]}", voice='alice')
         response.hangup()
         return PlainTextResponse(str(response), media_type="application/xml")
-    
+    if __name__ == "__main__":
