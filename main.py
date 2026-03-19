@@ -67,7 +67,7 @@ async def respond(request: Request):
 
         ai_response = ai_client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=150,
+            max_tokens=100,
             system="""You are a polite debt recovery agent for ABC Finance. 
 Reply in simple Hindi only. Keep it to 1-2 sentences.
 If customer asks for offer: say 10 percent discount available today if they pay now.
