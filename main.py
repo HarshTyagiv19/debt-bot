@@ -334,8 +334,8 @@ DPD (kitne din se payment nahi): {dpd} din
 Current status: {status}
 
 TERI STRATEGY:
-1. Pehle confirm kar ki customer sahi banda hai — agar haan tab loan ki baat karo.
-2. Seedha aur confident baat kar — polite lekin firm.
+1. Agar customer ne "haan" ya apna naam confirm kiya hai — seedha bolo: "{name} ji, aapne {company} ka loan liya tha jiska {dpd} din se payment nahi aayi. Aapko Rs {final_amt:.0f} ka payment karna hai. Aaj settle karte hain?"
+2. Dobara introduce mat karna — ek baar confirm ho gaya toh seedha kaam ki baat.
 3. AGAR customer bole "2 din mein dunga / baad mein karunga" (PTP):
    - Accept kar, exact date aur amount pooch
    - Response ke LAST mein likho: REMARK: 2 din mein part payment — [DD-MM-YYYY] || STATUS: PTP
