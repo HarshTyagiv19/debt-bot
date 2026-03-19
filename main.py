@@ -286,13 +286,11 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         final_amt  = offer_info.get('final_amount', 0)
         collected  = offer_info.get('collected', 0)
 
-        # Language detect karo — voice switch karo
-        english_words = ['yes','no','hello','hi','okay','ok','sure','fine','thanks','thank','please','sorry','what','when','how','why','who','can','will','money','pay','payment','loan','bank','speak','english','cant','dont','have','not','want']
-        speech_lower = (speech or "").lower()
-        words_in_speech = speech_lower.split()
-        is_english = any(w in words_in_speech for w in english_words) or (
-            len(speech or "") > 3 and all(ord(c) < 128 for c in (speech or "").replace(' ', '').replace("'", ""))
-        )
+        # Language detect — sirf tab English jab clearly English words hon
+        clear_english = ['yes','no','okay','ok','sure','fine','thanks','thank you','please','sorry','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can','i will','i dont','i cant','i have','i want']
+        speech_lower = (speech or "").lower().strip()
+        is_english = any(speech_lower == w or speech_lower.startswith(w + ' ') or (' ' + w + ' ') in speech_lower or speech_lower.endswith(' ' + w) for w in clear_english)
+
         voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
         lang  = 'en-IN'        if is_english else 'hi-IN'
 
