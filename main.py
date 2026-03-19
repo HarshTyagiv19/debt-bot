@@ -229,7 +229,7 @@ async def incoming(request: Request):
     gather = Gather(
         input='speech dtmf',
         action='https://debt-bot-production-57d7.up.railway.app/respond',
-        timeout=2,
+        timeout=10,
         speech_timeout='auto',
         method='POST'
     )
@@ -401,7 +401,7 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
         gather = Gather(
             input='speech dtmf',
             action='https://debt-bot-production-57d7.up.railway.app/respond',
-            timeout=2,
+            timeout=10,
             speech_timeout='auto',
             method='POST'
         )
