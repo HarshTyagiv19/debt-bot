@@ -15,7 +15,6 @@ twilio_client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_T
 ai_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 call_states = {}
 
-# ─── Google Sheets Setup ──────────────────────────────────────────────────────
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -32,13 +31,6 @@ def get_sheet():
     return gc.open_by_key(sheet_id).sheet1
 
 def get_debtor_by_phone(phone: str):
-    """
-    Phone number se debtor info nikalo.
-    Columns (as per actual file):
-    U=mobile, G=CustomerName, M=FinalAmount, L=TotalOutstanding,
-    AH=collectionHistory, AF=Status, X=Remark, D=AgentName,
-    F=loanNo, LenderName=extra column added by user
-    """
     try:
         sheet = get_sheet()
         all_rows = sheet.get_all_values()
@@ -47,7 +39,6 @@ def get_debtor_by_phone(phone: str):
 
         headers = all_rows[0]
 
-        # Column index dhundo by name
         def col(name):
             name_lower = name.lower().strip()
             for i, h in enumerate(headers):
@@ -108,11 +99,6 @@ def get_debtor_by_phone(phone: str):
 
 
 def calculate_collection_total(history_str: str) -> float:
-    """
-    Collection history parse karo.
-    Format: "500.00-2025-03-26\\200.00-2025-03-28"
-    Sabka total nikalo.
-    """
     if not history_str or history_str in ('0', 'NULL', 'None', ''):
         return 0.0
     total = 0.0
@@ -121,7 +107,6 @@ def calculate_collection_total(history_str: str) -> float:
         entry = entry.strip()
         if not entry:
             continue
-        # Amount is before first dash that's followed by a year
         parts = re.split(r'-(?=\d{4})', entry)
         if parts:
             try:
@@ -132,19 +117,12 @@ def calculate_collection_total(history_str: str) -> float:
 
 
 def calculate_offer_amount(debtor: dict) -> dict:
-    """
-    Bot ke liye offer amount calculate karo.
-    Final Amount - Collection History = actual remaining target
-    Minimum 1000-1500 agar negative aaye.
-    """
     try:
         final_amt = float(re.sub(r'[^\d.]', '', debtor.get('final_amount', '0') or '0'))
         collected  = calculate_collection_total(debtor.get('collection_history', ''))
         remaining  = final_amt - collected
-
         if remaining <= 0:
-            remaining = 1250  # midpoint of 1000-1500
-
+            remaining = 1250
         return {
             'final_amount': final_amt,
             'collected':    collected,
@@ -156,7 +134,6 @@ def calculate_offer_amount(debtor: dict) -> dict:
 
 
 def update_sheet_after_call(row_index: int, remark: str, status: str, headers: list, sheet=None):
-    """Remark aur Status columns update karo."""
     try:
         if sheet is None:
             sheet = get_sheet()
@@ -165,12 +142,11 @@ def update_sheet_after_call(row_index: int, remark: str, status: str, headers: l
             name_lower = name.lower().strip()
             for i, h in enumerate(headers):
                 if h.lower().strip() == name_lower:
-                    return i + 1  # gspread is 1-indexed
+                    return i + 1
             return None
 
         remark_col = col_num('Remark')
         status_col  = col_num('Status')
-        now = datetime.now().strftime("%d-%m-%Y %H:%M")
 
         if remark_col:
             sheet.update_cell(row_index, remark_col, remark)
@@ -182,7 +158,6 @@ def update_sheet_after_call(row_index: int, remark: str, status: str, headers: l
         print(f"Sheet update error: {e}")
 
 
-# ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/")
 def home():
     return {"status": "Aditi bot chal rahi hai!", "time": datetime.now().isoformat()}
@@ -191,8 +166,6 @@ def home():
 def health():
     return {"ok": True}
 
-
-# ─── Debug Sheet ─────────────────────────────────────────────────────────────
 @app.get("/debug-sheet")
 def debug_sheet():
     try:
@@ -200,15 +173,10 @@ def debug_sheet():
         all_rows = sheet.get_all_values()
         headers = all_rows[0] if all_rows else []
         row2 = all_rows[1] if len(all_rows) > 1 else []
-        return {
-            "total_rows": len(all_rows),
-            "headers": headers,
-            "row2_sample": row2[:25]
-        }
+        return {"total_rows": len(all_rows), "headers": headers, "row2_sample": row2[:25]}
     except Exception as e:
         return {"error": str(e)}
 
-# ─── Test Call ────────────────────────────────────────────────────────────────
 @app.get("/test-call")
 def test_call():
     try:
@@ -222,7 +190,6 @@ def test_call():
         return {"error": str(e)}
 
 
-# ─── Incoming Call ────────────────────────────────────────────────────────────
 @app.get("/incoming")
 @app.post("/incoming")
 async def incoming(request: Request):
@@ -244,7 +211,6 @@ async def incoming(request: Request):
             f"Hello, main Aditi bol rahi hun {company} se. "
             f"Kya main {name} ji se baat kar rahi hun?"
         )
-        # Pre-load context — bot ko pata ho ki yeh confirmation call hai
         call_states[call_sid] = {
             "messages": [
                 {"role": "assistant", "content": f"Hello, main Aditi bol rahi hun {company} se. Kya main {name} ji se baat kar rahi hun?"}
@@ -263,34 +229,44 @@ async def incoming(request: Request):
     gather = Gather(
         input='speech dtmf',
         action='https://debt-bot-production-57d7.up.railway.app/respond',
-        timeout=3,
+        timeout=5,
         speech_timeout='auto',
         method='POST'
     )
     gather.say(intro, voice='Polly.Aditi', language='hi-IN')
     response.append(gather)
 
-    # Agar koi response nahi aaya
-    _no_answer_remark(call_sid, caller, "Phone ringing but not picked")
-    response.say("Dhanyawad. Hum baad mein call karenge.", voice='Polly.Aditi', language='hi-IN')
+    # Yeh sirf tab chalega jab customer ne kuch nahi bola — gather timeout ke baad
+    response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
     return PlainTextResponse(str(response), media_type="application/xml")
 
 
-def _no_answer_remark(call_sid: str, caller: str, reason: str):
-    """Background mein sheet update karo agar koi na uthaye."""
+@app.get("/no-answer")
+@app.post("/no-answer")
+async def no_answer(request: Request):
+    form = {}
+    try:
+        form = await request.form()
+    except:
+        pass
+    call_sid = form.get("CallSid", "unknown")
+    caller   = form.get("From", "")
     state = call_states.get(call_sid, {})
     debtor = state.get('debtor')
     if debtor and debtor.get('row_index') and debtor.get('_headers'):
         now = datetime.now().strftime("%d-%m-%Y %H:%M")
         update_sheet_after_call(
             row_index=debtor['row_index'],
-            remark=f"{reason} — {now}",
+            remark=f"Phone ringing but not picked — {now}",
             status="No Answer",
             headers=debtor['_headers']
         )
+    response = VoiceResponse()
+    response.say("Dhanyawad. Hum baad mein call karenge.", voice='Polly.Aditi', language='hi-IN')
+    response.hangup()
+    return PlainTextResponse(str(response), media_type="application/xml")
 
 
-# ─── Respond ─────────────────────────────────────────────────────────────────
 @app.get("/respond")
 @app.post("/respond")
 async def respond(request: Request, background_tasks: BackgroundTasks):
@@ -307,85 +283,79 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         state  = call_states[call_sid]
         debtor = state.get("debtor")
 
-        # Offer amount calculate karo
         offer_info = calculate_offer_amount(debtor) if debtor else {}
         offer_amt  = offer_info.get('offer_amount', 0)
         final_amt  = offer_info.get('final_amount', 0)
         collected  = offer_info.get('collected', 0)
 
-        # Offer framing — har call mein alag line
         offer_lines = [
-            "Aaj ke liye hamare manager ne ek special choot di hai",
+            "Hamare manager ne aaj ke liye ek special choot di hai",
             "Sirf aaj ke liye interest waiver available hai",
-            "Aaj ka ek baar ka offer hai — kal nahi milega",
-            "Manager sahab ne personally approve kiya hai aaj ke liye",
-            "Yeh offer sirf aaj valid hai — kal se nahi milega",
+            "Aaj ka ek baar ka offer hai, kal nahi milega",
+            "Manager sahab ne personally aaj ke liye approve kiya hai",
+            "Yeh offer sirf aaj valid hai, kal se band ho jayega",
         ]
         offer_line = random.choice(offer_lines)
 
-        # System prompt — Aditi ka poora dimag
         if debtor:
             name    = debtor.get('name', 'aap')
-            loan_no = debtor.get('loan_no', '')
             company = debtor.get('company', 'hamare sansthan')
             dpd     = debtor.get('dpd', '')
-            status  = debtor.get('status', '')
 
             system_prompt = f"""Tu Aditi hai — {company} ki collection agent.
 
-CUSTOMER INFO (sirf tere liye — customer ko mat batana):
+CUSTOMER INFO (sirf tere reference ke liye — directly mat batana):
 - Naam: {name}
 - Company: {company}
-- Final Amount minimum: Rs {final_amt:.0f}
+- Minimum lena hai: Rs {final_amt:.0f}
 - Din se pending: {dpd} din
 - Pehle diya: Rs {collected:.0f}
-- Settlement amount: Rs {offer_amt:.0f}
+- Settlement offer: Rs {offer_amt:.0f}
 
-CALL KA FLOW:
+CALL FLOW:
 
-STEP 1 — Customer "haan" bole ya confirm kare:
+STEP 1 — Jab customer "haan" bole ya confirm kare:
 Seedha bolo: "{name} ji, aapne {company} ka loan liya tha jiska kaafi time se payment nahi aayi. Aap kab kar rahe hain?"
 
-STEP 2 — Customer ke response pe:
+STEP 2 — Customer ke jawab pe:
 
-A) "2 din mein dunga / kal / baad mein" (PTP):
-   Pooch exact date. Accept karo.
+A) "Kal dunga / 2 din mein / baad mein" (PTP):
+   Exact date pooch. Accept karo.
    REMARK: 2 din mein part payment — [date] || STATUS: PTP
 
-B) "Paise nahi hain / nahi de sakta":
-   Kaho: "{offer_line}. Aaj ek baar mein loan close karo — NOC milegi, CIBIL theek hoga."
-   Agar pooche kitna — tab Rs {offer_amt:.0f} batao.
+B) "Paise nahi hain / mushkil hai / nahi de sakta":
+   Kaho: "{offer_line}. Aaj ek baar mein loan close karo — NOC milegi, CIBIL sahi hoga."
+   Agar amount pooche — tab batao Rs {offer_amt:.0f}.
    REMARK: Settlement offer diya || STATUS: Settlement Offered
 
 C) "Part payment kar sakta hun":
-   Kaho: "Haan kar sakte hain — lekin aaj poora close karein toh better hoga, interest roz badh raha hai."
-   Agar phir bhi part pe aada rahe — accept karo, date aur amount pooch.
+   Kaho: "Haan ho sakta hai — lekin aaj poora close karein toh better hoga, interest roz badh raha hai."
+   Agar phir bhi part pe rahe — accept karo, date aur amount pooch.
    REMARK: Part payment [amount] [date] || STATUS: Part Payment
 
-D) Aggressive ho ya gaali de:
+D) Aggressive ya gaali de:
    Shant raho. "Samajh sakti hun, lekin yeh aapke bhale ke liye hai."
-   Payment pe wapas laao.
+   Baat payment pe laao.
    REMARK: Customer aggressive || STATUS: Contacted
 
-E) Payment ho gayi:
+E) Payment confirm ho gayi:
    REMARK: Payment confirmed [amount] || STATUS: Paid
 
-HARD RULES — KABHI MAT TODNA:
-- Amount KABHI seedha mat batao — sirf tab batao jab customer pooche ya settlement pe aaye
+HARD RULES:
+- Amount seedha MAT batao — sirf tab jab customer pooche ya settlement pe aaye
 - Rs {final_amt:.0f} se kam kabhi nahi lena
-- Dobara introduce mat karna
-- Agar customer Hindi mein bole toh Hindi mein jawab do
-- Agar customer English mein bole toh English mein jawab do
-- Language customer ke hisaab se automatically switch karo
-- Maximum 2 sentences
-- Har response ke end mein REMARK: ... || STATUS: ... likhna"""
+- Dobara apna introduction mat karna
+- LANGUAGE: Customer jis language mein bole — Hindi ya English — usi mein jawab do
+- Maximum 2 sentences per reply
+- Har jawab ke end mein REMARK: ... || STATUS: ... likhna zaroori hai"""
 
         else:
             system_prompt = """Tu Aditi hai — ek professional collection agent.
-Customer ki file nahi mili system mein.
-Unse pooch: "Aapka naam kya hai aur kis company ka loan hai?"
-Sirf Hindi mein baat kar, 1-2 sentence mein.
-Har response ke end mein likho: REMARK: [kya hua] || STATUS: Contacted"""
+Customer ki file system mein nahi mili.
+Unse pooch ki unka naam kya hai aur kis company ka loan hai.
+Customer jis language mein bole — Hindi ya English — usi mein jawab do.
+Maximum 2 sentences.
+Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
 
         state["messages"].append({"role": "user", "content": speech or "..."})
 
@@ -399,14 +369,12 @@ Har response ke end mein likho: REMARK: [kya hua] || STATUS: Contacted"""
         bot_full_reply = ai_response.content[0].text
         state["messages"].append({"role": "assistant", "content": bot_full_reply})
 
-        # REMARK aur STATUS extract karo
         remark_match = re.search(r'REMARK:\s*(.+?)(?:\|\||\n|$)', bot_full_reply)
         status_match = re.search(r'STATUS:\s*(.+?)(?:\n|$)', bot_full_reply)
 
         extracted_remark = remark_match.group(1).strip() if remark_match else f"Contacted — {datetime.now().strftime('%d-%m-%Y %H:%M')}"
         extracted_status = status_match.group(1).strip() if status_match else "Contacted"
 
-        # Sheet background mein update karo
         if debtor and debtor.get('row_index') and debtor.get('_headers'):
             background_tasks.add_task(
                 update_sheet_after_call,
@@ -416,23 +384,22 @@ Har response ke end mein likho: REMARK: [kya hua] || STATUS: Contacted"""
                 headers=debtor['_headers']
             )
 
-        # REMARK/STATUS part customer ko mat sunao
         clean_reply = re.sub(r'REMARK:.*', '', bot_full_reply, flags=re.DOTALL).strip()
         clean_reply = re.sub(r'STATUS:.*', '', clean_reply, flags=re.DOTALL).strip()
         if not clean_reply:
-            clean_reply = "Theek hai, main note kar leti hun."
+            clean_reply = "Theek hai, note kar liya."
 
         response = VoiceResponse()
         gather = Gather(
             input='speech dtmf',
             action='https://debt-bot-production-57d7.up.railway.app/respond',
-            timeout=3,
+            timeout=5,
             speech_timeout='auto',
             method='POST'
         )
         gather.say(clean_reply, voice='Polly.Aditi', language='hi-IN')
         response.append(gather)
-        response.say("Dhanyawad. Aapka din shubh ho.", voice='Polly.Aditi', language='hi-IN')
+        response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
         return PlainTextResponse(str(response), media_type="application/xml")
 
     except Exception as e:
