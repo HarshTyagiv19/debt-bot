@@ -223,19 +223,16 @@ async def incoming(request: Request):
 
     if debtor:
         name    = debtor.get('name', 'aap')
-        loan_no = debtor.get('loan_no', '')
         company = debtor.get('company', 'hamare sansthan')
         intro   = (
-            f"Namaste, kya aap {name} ji bol rahe hain? "
-            f"Main Aditi bol rahi hun, {company} se. "
-            f"Aapke loan number {loan_no} ke baare mein baat karni thi."
+            f"Hello, main Aditi bol rahi hun {company} se. "
+            f"Kya main {name} ji se baat kar rahi hun?"
         )
         call_states[call_sid] = {"messages": [], "debtor": debtor, "caller": caller}
     else:
         intro = (
-            "Namaste, kya main loan account holder se baat kar sakti hun? "
-            "Main Aditi bol rahi hun, Ram Fin Corp se. "
-            "Aapki ek pending payment ke baare mein baat karni thi."
+            "Hello, main Aditi bol rahi hun. "
+            "Kya aap loan account holder hain?"
         )
         call_states[call_sid] = {"messages": [], "debtor": None, "caller": caller}
 
@@ -355,11 +352,11 @@ HARD RULES — KABHI MAT TODNA:
 - Har response ke end mein REMARK: aur STATUS: zaroor likhna"""
 
         else:
-            system_prompt = """Tu Aditi hai — Ram Fin Corp ki professional collection agent.
-Customer ki file nahi mili — general collection call hai.
-Politely pooch ki unka loan account number kya hai.
+            system_prompt = """Tu Aditi hai — ek professional collection agent.
+Customer ki file nahi mili system mein.
+Unse pooch: "Aapka naam kya hai aur kis company ka loan hai?"
 Sirf Hindi mein baat kar, 1-2 sentence mein.
-Agar koi bhi response do — REMARK: [kya hua] || STATUS: Contacted"""
+Har response ke end mein likho: REMARK: [kya hua] || STATUS: Contacted"""
 
         state["messages"].append({"role": "user", "content": speech or "..."})
 
