@@ -177,6 +177,76 @@ def debug_sheet():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/call-all")
+async def call_all():
+    try:
+        sheet = get_sheet()
+        all_rows = sheet.get_all_values()
+        if not all_rows:
+            return {"error": "Sheet khaali hai"}
+
+        headers = all_rows[0]
+
+        def col(name):
+            name_lower = name.lower().strip()
+            for i, h in enumerate(headers):
+                if h.lower().strip() == name_lower:
+                    return i
+            return None
+
+        mobile_idx = col('mobile')
+        status_idx = col('Status')
+        name_idx   = col('CustomerName')
+
+        if mobile_idx is None:
+            return {"error": "mobile column nahi mila"}
+
+        called  = []
+        skipped = []
+
+        for row_num, row in enumerate(all_rows[1:], start=2):
+            mobile = str(row[mobile_idx]).strip() if mobile_idx < len(row) else ''
+            status = str(row[status_idx]).strip() if status_idx and status_idx < len(row) else ''
+            name   = str(row[name_idx]).strip()   if name_idx   and name_idx   < len(row) else ''
+
+            if not mobile or mobile in ('0', 'NULL', 'None', ''):
+                skipped.append(f"Row {row_num}: number nahi")
+                continue
+
+            if status.lower() in ('paid', 'payment done'):
+                skipped.append(f"Row {row_num} ({name}): already paid")
+                continue
+
+            clean = re.sub(r'\D', '', mobile)
+            if len(clean) == 10:
+                number = f"+91{clean}"
+            elif len(clean) == 12 and clean.startswith('91'):
+                number = f"+{clean}"
+            else:
+                number = f"+{clean}"
+
+            try:
+                call = twilio_client.calls.create(
+                    to=number,
+                    from_=os.getenv("TWILIO_PHONE_NUMBER"),
+                    url="https://debt-bot-production-57d7.up.railway.app/incoming"
+                )
+                called.append(f"Row {row_num} ({name}): {number} — {call.sid}")
+                print(f"Call started: {name} {number}")
+            except Exception as e:
+                skipped.append(f"Row {row_num} ({name}): {number} — Error: {str(e)}")
+
+        return {
+            "total_called": len(called),
+            "total_skipped": len(skipped),
+            "called": called,
+            "skipped": skipped
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/test-call")
 def test_call():
     try:
