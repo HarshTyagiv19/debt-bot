@@ -288,6 +288,16 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         final_amt  = offer_info.get('final_amount', 0)
         collected  = offer_info.get('collected', 0)
 
+        # Language detect karo — voice switch karo
+        english_words = ['yes','no','hello','hi','okay','ok','sure','fine','thanks','thank','please','sorry','what','when','how','why','who','can','will','money','pay','payment','loan','bank','speak','english','cant','dont','have','not','want']
+        speech_lower = (speech or "").lower()
+        words_in_speech = speech_lower.split()
+        is_english = any(w in words_in_speech for w in english_words) or (
+            len(speech or "") > 3 and all(ord(c) < 128 for c in (speech or "").replace(' ', '').replace("'", ""))
+        )
+        voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
+        lang  = 'en-IN'        if is_english else 'hi-IN'
+
         offer_lines = [
             "Hamare manager ne aaj ke liye ek special choot di hai",
             "Sirf aaj ke liye interest waiver available hai",
@@ -397,7 +407,7 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
             speech_timeout='auto',
             method='POST'
         )
-        gather.say(clean_reply, voice='Polly.Aditi', language='hi-IN')
+        gather.say(clean_reply, voice=voice, language=lang)
         response.append(gather)
         response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
         return PlainTextResponse(str(response), media_type="application/xml")
