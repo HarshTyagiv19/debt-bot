@@ -43,10 +43,10 @@ async def incoming(request: Request):
         "Namaste! Main ABC Finance se bol raha hun. "
         "Aapki ek payment pending hai. "
         "Kya aap abhi baat kar sakte hain? ",
-        voice='alice'
+        voice='Polly.Aditi'
     )
     response.append(gather)
-    response.say("Dhanyawad. Hum baad mein call karenge.", voice='alice')
+    response.say("Dhanyawad. Hum baad mein call karenge.", voice='Polly.Aditi')
     return PlainTextResponse(str(response), media_type="application/xml")
 
 @app.get("/respond")
@@ -89,15 +89,15 @@ If customer says busy: say will call later.""",
             timeout=8,
             method='POST'
         )
-        gather.say(bot_reply, voice='alice')
+        gather.say(bot_reply, voice='Polly.Aditi')
         response.append(gather)
-        response.say("Dhanyawad. Aapka din shubh ho.", voice='alice')
+        response.say("Dhanyawad. Aapka din shubh ho.", voice='Polly.Aditi')
         return PlainTextResponse(str(response), media_type="application/xml")
 
     except Exception as e:
         print(f"RESPOND ERROR: {e}")
         response = VoiceResponse()
-        response.say(f"Error: {str(e)[:50]}", voice='alice')
+        response.say(f"Error: {str(e)[:50]}", voice='Polly.Aditi')
         response.hangup()
         return PlainTextResponse(str(response), media_type="application/xml")
     
