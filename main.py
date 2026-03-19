@@ -340,26 +340,23 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         state  = call_states[call_sid]
         debtor = state.get("debtor")
 
-        # Language detect karo — har message pe fresh check
-        clear_english = ['yes','no','okay','ok','sure','fine','thanks','thank you','please','sorry','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can','i will','i dont','i cant','i have','i want','i cant pay','i will pay','speak in english','english please','in english']
+        # Language detect karo — customer ki current message se
         speech_lower = (speech or "").lower().strip()
-        is_english = any(
-            speech_lower == w or
-            speech_lower.startswith(w + ' ') or
-            (' ' + w + ' ') in (' ' + speech_lower + ' ') or
-            speech_lower.endswith(' ' + w)
-            for w in clear_english
-        )
+        has_devanagari = any(ord(c) > 127 for c in (speech or ""))
+        clear_english_words = ['yes','no','okay','ok','sure','fine','thanks','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can']
+        has_english = any(w in speech_lower.split() for w in clear_english_words)
 
-        # Language state update karo
+        if has_devanagari:
+            is_english = False
+        elif has_english:
+            is_english = True
+        else:
+            is_english = state.get("language", "hi") == "en"
+
         if is_english:
             state["language"] = "en"
-        elif any(ord(c) > 127 for c in (speech or "")):
-            # Devanagari characters hain — Hindi hai
+        else:
             state["language"] = "hi"
-
-        current_lang = state.get("language", "hi")
-        is_english = (current_lang == "en")
 
         voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
         lang  = 'en-IN'        if is_english else 'hi-IN'
@@ -383,7 +380,7 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
             company = debtor.get('company', 'hamare sansthan')
             dpd     = debtor.get('dpd', '')
 
-            lang_instruction = "Customer English mein bol raha hai — reply in English only." if is_english else "Customer Hindi mein bol raha hai — Hindi mein jawab de. Agar customer English mein bole toh English mein switch kar."
+            lang_instruction = "IMPORTANT: Customer ne abhi jo language boli hai usi mein jawab do. Agar Hindi boli toh Hindi, agar English boli toh English. Language customer follow karo."
 
             system_prompt = f"""Tu Aditi hai — {company} ki collection agent.
 {lang_instruction}
@@ -433,7 +430,7 @@ HARD RULES:
 - Har jawab ke end mein REMARK: ... || STATUS: ... likhna zaroori hai"""
 
         else:
-            lang_instruction = "Customer English mein bol raha hai — reply in English only." if is_english else "Customer Hindi mein bol raha hai — Hindi mein jawab de. Agar customer English mein bole toh English mein switch kar."
+            lang_instruction = "IMPORTANT: Customer ne abhi jo language boli hai usi mein jawab do. Agar Hindi boli toh Hindi, agar English boli toh English. Language customer follow karo."
             system_prompt = f"""Tu Aditi hai — ek professional collection agent.
 Customer ki file system mein nahi mili.
 Unse pooch ki unka naam kya hai aur kis company ka loan hai.
