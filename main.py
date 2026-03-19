@@ -1,12 +1,12 @@
 from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse, Gather
-import anthropic, os, json, re, random
+import anthropic, os, json, re, random, httpx
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime, date
+from datetime import datetime
 
 load_dotenv()
 
@@ -36,7 +36,6 @@ def get_debtor_by_phone(phone: str):
         all_rows = sheet.get_all_values()
         if not all_rows:
             return None
-
         headers = all_rows[0]
 
         def col(name):
@@ -47,17 +46,17 @@ def get_debtor_by_phone(phone: str):
             return None
 
         idx = {
-            'mobile':             col('mobile'),
-            'CustomerName':       col('CustomerName'),
-            'FinalAmount':        col('Final Amount'),
-            'TotalOutstanding':   col('Total Outstanding'),
-            'collectionHistory':  col('collectionHistory'),
-            'Status':             col('Status'),
-            'Remark':             col('Remark'),
-            'AgentName':          col('Agent Name'),
-            'loanNo':             col('loanNo'),
-            'LenderName':         col('LenderName'),
-            'DPD':                col('DPD'),
+            'mobile':            col('mobile'),
+            'CustomerName':      col('CustomerName'),
+            'FinalAmount':       col('Final Amount'),
+            'TotalOutstanding':  col('Total Outstanding'),
+            'collectionHistory': col('collectionHistory'),
+            'Status':            col('Status'),
+            'Remark':            col('Remark'),
+            'AgentName':         col('Agent Name'),
+            'loanNo':            col('loanNo'),
+            'LenderName':        col('LenderName'),
+            'DPD':               col('DPD'),
         }
 
         clean_input = re.sub(r'\D', '', phone)
@@ -75,7 +74,6 @@ def get_debtor_by_phone(phone: str):
                     if i is None or i >= len(row):
                         return ''
                     return str(row[i]).strip()
-
                 return {
                     'row_index':          row_num,
                     'mobile':             safe_get('mobile'),
@@ -92,7 +90,6 @@ def get_debtor_by_phone(phone: str):
                     '_headers':           headers,
                 }
         return None
-
     except Exception as e:
         print(f"Sheet lookup error: {e}")
         return None
@@ -119,15 +116,11 @@ def calculate_collection_total(history_str: str) -> float:
 def calculate_offer_amount(debtor: dict) -> dict:
     try:
         final_amt = float(re.sub(r'[^\d.]', '', debtor.get('final_amount', '0') or '0'))
-        collected  = calculate_collection_total(debtor.get('collection_history', ''))
-        remaining  = final_amt - collected
+        collected = calculate_collection_total(debtor.get('collection_history', ''))
+        remaining = final_amt - collected
         if remaining <= 0:
             remaining = 1250
-        return {
-            'final_amount': final_amt,
-            'collected':    collected,
-            'offer_amount': round(remaining),
-        }
+        return {'final_amount': final_amt, 'collected': collected, 'offer_amount': round(remaining)}
     except Exception as e:
         print(f"Offer calc error: {e}")
         return {'final_amount': 0, 'collected': 0, 'offer_amount': 0}
@@ -137,25 +130,46 @@ def update_sheet_after_call(row_index: int, remark: str, status: str, headers: l
     try:
         if sheet is None:
             sheet = get_sheet()
-
         def col_num(name):
             name_lower = name.lower().strip()
             for i, h in enumerate(headers):
                 if h.lower().strip() == name_lower:
                     return i + 1
             return None
-
         remark_col = col_num('Remark')
-        status_col  = col_num('Status')
-
+        status_col = col_num('Status')
         if remark_col:
             sheet.update_cell(row_index, remark_col, remark)
         if status_col:
             sheet.update_cell(row_index, status_col, status)
-
         print(f"Sheet updated: row {row_index} | {remark} | {status}")
     except Exception as e:
         print(f"Sheet update error: {e}")
+
+
+async def deepgram_transcribe(audio_url: str) -> dict:
+    """Deepgram se audio transcribe karo — Hindi aur English dono."""
+    api_key = os.getenv("DEEPGRAM_API_KEY")
+    if not api_key:
+        return {"text": "", "language": "hi"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                "https://api.deepgram.com/v1/listen?model=nova-2&language=multi&detect_language=true&punctuate=true&smart_format=true",
+                headers={
+                    "Authorization": f"Token {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={"url": audio_url}
+            )
+            data = response.json()
+            transcript = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "")
+            detected_lang = data.get("results", {}).get("channels", [{}])[0].get("detected_language", "hi")
+            return {"text": transcript, "language": detected_lang}
+    except Exception as e:
+        print(f"Deepgram error: {e}")
+        return {"text": "", "language": "hi"}
 
 
 @app.get("/")
@@ -184,39 +198,30 @@ async def call_all():
         all_rows = sheet.get_all_values()
         if not all_rows:
             return {"error": "Sheet khaali hai"}
-
         headers = all_rows[0]
-
         def col(name):
             name_lower = name.lower().strip()
             for i, h in enumerate(headers):
                 if h.lower().strip() == name_lower:
                     return i
             return None
-
         mobile_idx = col('mobile')
         status_idx = col('Status')
         name_idx   = col('CustomerName')
-
         if mobile_idx is None:
             return {"error": "mobile column nahi mila"}
-
-        called  = []
+        called = []
         skipped = []
-
         for row_num, row in enumerate(all_rows[1:], start=2):
             mobile = str(row[mobile_idx]).strip() if mobile_idx < len(row) else ''
             status = str(row[status_idx]).strip() if status_idx and status_idx < len(row) else ''
             name   = str(row[name_idx]).strip()   if name_idx   and name_idx   < len(row) else ''
-
             if not mobile or mobile in ('0', 'NULL', 'None', ''):
                 skipped.append(f"Row {row_num}: number nahi")
                 continue
-
             if status.lower() in ('paid', 'payment done'):
                 skipped.append(f"Row {row_num} ({name}): already paid")
                 continue
-
             clean = re.sub(r'\D', '', mobile)
             if len(clean) == 10:
                 number = f"+91{clean}"
@@ -224,7 +229,6 @@ async def call_all():
                 number = f"+{clean}"
             else:
                 number = f"+{clean}"
-
             try:
                 call = twilio_client.calls.create(
                     to=number,
@@ -232,20 +236,11 @@ async def call_all():
                     url="https://debt-bot-production-57d7.up.railway.app/incoming"
                 )
                 called.append(f"Row {row_num} ({name}): {number} — {call.sid}")
-                print(f"Call started: {name} {number}")
             except Exception as e:
                 skipped.append(f"Row {row_num} ({name}): {number} — Error: {str(e)}")
-
-        return {
-            "total_called": len(called),
-            "total_skipped": len(skipped),
-            "called": called,
-            "skipped": skipped
-        }
-
+        return {"total_called": len(called), "total_skipped": len(skipped), "called": called, "skipped": skipped}
     except Exception as e:
         return {"error": str(e)}
-
 
 @app.get("/test-call")
 def test_call():
@@ -271,29 +266,21 @@ async def incoming(request: Request):
 
     call_sid = form.get("CallSid", "unknown")
     caller   = form.get("From", "")
-
-    debtor = get_debtor_by_phone(caller) if caller else None
+    debtor   = get_debtor_by_phone(caller) if caller else None
 
     if debtor:
         name    = debtor.get('name', 'aap')
         company = debtor.get('company', 'hamare sansthan')
-        intro   = (
-            f"Hello, main Aditi bol rahi hun {company} se. "
-            f"Kya main {name} ji se baat kar rahi hun?"
-        )
+        intro   = f"Hello, main Aditi bol rahi hun {company} se. Kya main {name} ji se baat kar rahi hun?"
         call_states[call_sid] = {
-            "messages": [
-                {"role": "assistant", "content": f"Hello, main Aditi bol rahi hun {company} se. Kya main {name} ji se baat kar rahi hun?"}
-            ],
+            "messages": [{"role": "assistant", "content": intro}],
             "debtor": debtor,
-            "caller": caller
+            "caller": caller,
+            "language": "hi"
         }
     else:
-        intro = (
-            "Hello, main Aditi bol rahi hun. "
-            "Kya aap loan account holder hain?"
-        )
-        call_states[call_sid] = {"messages": [], "debtor": None, "caller": caller}
+        intro = "Hello, main Aditi bol rahi hun. Kya aap loan account holder hain?"
+        call_states[call_sid] = {"messages": [], "debtor": None, "caller": caller, "language": "hi"}
 
     response = VoiceResponse()
     gather = Gather(
@@ -301,11 +288,11 @@ async def incoming(request: Request):
         action='https://debt-bot-production-57d7.up.railway.app/respond',
         timeout=10,
         speech_timeout='auto',
+        language='hi-IN',
         method='POST'
     )
     gather.say(intro, voice='Polly.Aditi', language='hi-IN')
     response.append(gather)
-
     response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
     return PlainTextResponse(str(response), media_type="application/xml")
 
@@ -319,8 +306,7 @@ async def no_answer(request: Request):
     except:
         pass
     call_sid = form.get("CallSid", "unknown")
-    caller   = form.get("From", "")
-    state = call_states.get(call_sid, {})
+    state  = call_states.get(call_sid, {})
     debtor = state.get('debtor')
     if debtor and debtor.get('row_index') and debtor.get('_headers'):
         now = datetime.now().strftime("%d-%m-%Y %H:%M")
@@ -340,29 +326,43 @@ async def no_answer(request: Request):
 async def respond(request: Request, background_tasks: BackgroundTasks):
     try:
         form     = await request.form()
-        speech   = form.get("SpeechResult", "")
         call_sid = form.get("CallSid", "unknown")
         caller   = form.get("From", "")
 
+        # Deepgram se transcribe karo
+        recording_url = form.get("RecordingUrl", "")
+        speech = form.get("SpeechResult", "")
+
         if call_sid not in call_states:
             debtor = get_debtor_by_phone(caller) if caller else None
-            call_states[call_sid] = {"messages": [], "debtor": debtor, "caller": caller}
+            call_states[call_sid] = {"messages": [], "debtor": debtor, "caller": caller, "language": "hi"}
 
         state  = call_states[call_sid]
         debtor = state.get("debtor")
+
+        # Language detect karo
+        clear_english = ['yes','no','okay','ok','sure','fine','thanks','thank you','please','sorry','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can','i will','i dont','i cant','i have','i want','i cant pay','i will pay']
+        speech_lower = (speech or "").lower().strip()
+        is_english = any(
+            speech_lower == w or
+            speech_lower.startswith(w + ' ') or
+            (' ' + w + ' ') in (' ' + speech_lower + ' ')
+            for w in clear_english
+        )
+
+        # Language state save karo — agar pehle English tha toh English rakho
+        if is_english:
+            state["language"] = "en"
+        current_lang = state.get("language", "hi")
+        is_english = (current_lang == "en")
+
+        voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
+        lang  = 'en-IN'        if is_english else 'hi-IN'
 
         offer_info = calculate_offer_amount(debtor) if debtor else {}
         offer_amt  = offer_info.get('offer_amount', 0)
         final_amt  = offer_info.get('final_amount', 0)
         collected  = offer_info.get('collected', 0)
-
-        # Language detect — sirf tab English jab clearly English words hon
-        clear_english = ['yes','no','okay','ok','sure','fine','thanks','thank you','please','sorry','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can','i will','i dont','i cant','i have','i want']
-        speech_lower = (speech or "").lower().strip()
-        is_english = any(speech_lower == w or speech_lower.startswith(w + ' ') or (' ' + w + ' ') in speech_lower or speech_lower.endswith(' ' + w) for w in clear_english)
-
-        voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
-        lang  = 'en-IN'        if is_english else 'hi-IN'
 
         offer_lines = [
             "Hamare manager ne aaj ke liye ek special choot di hai",
@@ -378,7 +378,10 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
             company = debtor.get('company', 'hamare sansthan')
             dpd     = debtor.get('dpd', '')
 
+            lang_instruction = "Reply ONLY in English." if is_english else "Reply ONLY in Hindi."
+
             system_prompt = f"""Tu Aditi hai — {company} ki collection agent.
+{lang_instruction}
 
 CUSTOMER INFO (sirf tere reference ke liye — directly mat batana):
 - Naam: {name}
@@ -390,7 +393,7 @@ CUSTOMER INFO (sirf tere reference ke liye — directly mat batana):
 
 CALL FLOW:
 
-STEP 1 — Jab customer "haan" bole ya confirm kare:
+STEP 1 — Customer "haan/yes" bole ya confirm kare:
 Seedha bolo: "{name} ji, aapne {company} ka loan liya tha jiska kaafi time se payment nahi aayi. Aap kab kar rahe hain?"
 
 STEP 2 — Customer ke jawab pe:
@@ -405,31 +408,31 @@ B) "Paise nahi hain / mushkil hai / nahi de sakta":
    REMARK: Settlement offer diya || STATUS: Settlement Offered
 
 C) "Part payment kar sakta hun":
-   Kaho: "Haan ho sakta hai — lekin aaj poora close karein toh better hoga, interest roz badh raha hai."
-   Agar phir bhi part pe rahe — accept karo, date aur amount pooch.
+   Kaho: "Haan ho sakta hai — lekin aaj poora close karein toh better hoga."
+   Agar part pe rahe — accept karo, date aur amount pooch.
    REMARK: Part payment [amount] [date] || STATUS: Part Payment
 
 D) Aggressive ya gaali de:
-   Shant raho. "Samajh sakti hun, lekin yeh aapke bhale ke liye hai."
-   Baat payment pe laao.
+   Shant raho. Payment pe laao.
    REMARK: Customer aggressive || STATUS: Contacted
 
-E) Payment confirm ho gayi:
+E) Payment confirm:
    REMARK: Payment confirmed [amount] || STATUS: Paid
 
 HARD RULES:
 - Amount seedha MAT batao — sirf tab jab customer pooche ya settlement pe aaye
 - Rs {final_amt:.0f} se kam kabhi nahi lena
 - Dobara apna introduction mat karna
-- LANGUAGE RULE: Customer ne abhi {"English" if is_english else "Hindi"} mein baat ki hai — TU BHI SIRF {"ENGLISH" if is_english else "HINDI"} MEIN JAWAB DE — koi aur language nahi
-- Maximum 2 sentences per reply
+- {lang_instruction}
+- Maximum 2 sentences
 - Har jawab ke end mein REMARK: ... || STATUS: ... likhna zaroori hai"""
 
         else:
+            lang_instruction = "Reply ONLY in English." if is_english else "Reply ONLY in Hindi."
             system_prompt = f"""Tu Aditi hai — ek professional collection agent.
 Customer ki file system mein nahi mili.
 Unse pooch ki unka naam kya hai aur kis company ka loan hai.
-LANGUAGE RULE: Customer ne {"English" if is_english else "Hindi"} mein baat ki — TU BHI SIRF {"ENGLISH" if is_english else "HINDI"} MEIN JAWAB DE.
+{lang_instruction}
 Maximum 2 sentences.
 Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
 
@@ -447,7 +450,6 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
 
         remark_match = re.search(r'REMARK:\s*(.+?)(?:\|\||\n|$)', bot_full_reply)
         status_match = re.search(r'STATUS:\s*(.+?)(?:\n|$)', bot_full_reply)
-
         extracted_remark = remark_match.group(1).strip() if remark_match else f"Contacted — {datetime.now().strftime('%d-%m-%Y %H:%M')}"
         extracted_status = status_match.group(1).strip() if status_match else "Contacted"
 
@@ -463,7 +465,7 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
         clean_reply = re.sub(r'REMARK:.*', '', bot_full_reply, flags=re.DOTALL).strip()
         clean_reply = re.sub(r'STATUS:.*', '', clean_reply, flags=re.DOTALL).strip()
         if not clean_reply:
-            clean_reply = "Theek hai, note kar liya."
+            clean_reply = "Theek hai, note kar liya." if not is_english else "Okay, noted."
 
         response = VoiceResponse()
         gather = Gather(
@@ -471,6 +473,7 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
             action='https://debt-bot-production-57d7.up.railway.app/respond',
             timeout=10,
             speech_timeout='auto',
+            language=lang,
             method='POST'
         )
         gather.say(clean_reply, voice=voice, language=lang)
