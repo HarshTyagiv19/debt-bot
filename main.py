@@ -340,19 +340,24 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         state  = call_states[call_sid]
         debtor = state.get("debtor")
 
-        # Language detect karo
-        clear_english = ['yes','no','okay','ok','sure','fine','thanks','thank you','please','sorry','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can','i will','i dont','i cant','i have','i want','i cant pay','i will pay']
+        # Language detect karo — har message pe fresh check
+        clear_english = ['yes','no','okay','ok','sure','fine','thanks','thank you','please','sorry','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can','i will','i dont','i cant','i have','i want','i cant pay','i will pay','speak in english','english please','in english']
         speech_lower = (speech or "").lower().strip()
         is_english = any(
             speech_lower == w or
             speech_lower.startswith(w + ' ') or
-            (' ' + w + ' ') in (' ' + speech_lower + ' ')
+            (' ' + w + ' ') in (' ' + speech_lower + ' ') or
+            speech_lower.endswith(' ' + w)
             for w in clear_english
         )
 
-        # Language state save karo — agar pehle English tha toh English rakho
+        # Language state update karo
         if is_english:
             state["language"] = "en"
+        elif any(ord(c) > 127 for c in (speech or "")):
+            # Devanagari characters hain — Hindi hai
+            state["language"] = "hi"
+
         current_lang = state.get("language", "hi")
         is_english = (current_lang == "en")
 
@@ -378,7 +383,7 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
             company = debtor.get('company', 'hamare sansthan')
             dpd     = debtor.get('dpd', '')
 
-            lang_instruction = "Reply ONLY in English." if is_english else "Reply ONLY in Hindi."
+            lang_instruction = "Customer English mein bol raha hai — reply in English only." if is_english else "Customer Hindi mein bol raha hai — Hindi mein jawab de. Agar customer English mein bole toh English mein switch kar."
 
             system_prompt = f"""Tu Aditi hai — {company} ki collection agent.
 {lang_instruction}
@@ -428,7 +433,7 @@ HARD RULES:
 - Har jawab ke end mein REMARK: ... || STATUS: ... likhna zaroori hai"""
 
         else:
-            lang_instruction = "Reply ONLY in English." if is_english else "Reply ONLY in Hindi."
+            lang_instruction = "Customer English mein bol raha hai — reply in English only." if is_english else "Customer Hindi mein bol raha hai — Hindi mein jawab de. Agar customer English mein bole toh English mein switch kar."
             system_prompt = f"""Tu Aditi hai — ek professional collection agent.
 Customer ki file system mein nahi mili.
 Unse pooch ki unka naam kya hai aur kis company ka loan hai.
