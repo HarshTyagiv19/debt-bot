@@ -192,6 +192,22 @@ def health():
     return {"ok": True}
 
 
+# ─── Debug Sheet ─────────────────────────────────────────────────────────────
+@app.get("/debug-sheet")
+def debug_sheet():
+    try:
+        sheet = get_sheet()
+        all_rows = sheet.get_all_values()
+        headers = all_rows[0] if all_rows else []
+        row2 = all_rows[1] if len(all_rows) > 1 else []
+        return {
+            "total_rows": len(all_rows),
+            "headers": headers,
+            "row2_sample": row2[:25]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 # ─── Test Call ────────────────────────────────────────────────────────────────
 @app.get("/test-call")
 def test_call():
