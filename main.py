@@ -36,7 +36,8 @@ async def incoming(request: Request):
     gather = Gather(
         input='speech dtmf',
         action='https://debt-bot-production-57d7.up.railway.app/respond',
-        timeout=8,
+        timeout=3,
+        speech_timeout='auto',
         method='POST'
     )
     gather.say(
@@ -82,7 +83,8 @@ async def respond(request: Request):
         gather = Gather(
             input='speech dtmf',
             action='https://debt-bot-production-57d7.up.railway.app/respond',
-            timeout=8,
+            timeout=3,
+        speech_timeout='auto',
             method='POST'
         )
         gather.say(bot_reply, voice='Polly.Aditi')
