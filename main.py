@@ -229,14 +229,13 @@ async def incoming(request: Request):
     gather = Gather(
         input='speech dtmf',
         action='https://debt-bot-production-57d7.up.railway.app/respond',
-        timeout=5,
+        timeout=2,
         speech_timeout='auto',
         method='POST'
     )
     gather.say(intro, voice='Polly.Aditi', language='hi-IN')
     response.append(gather)
 
-    # Yeh sirf tab chalega jab customer ne kuch nahi bola — gather timeout ke baad
     response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
     return PlainTextResponse(str(response), media_type="application/xml")
 
@@ -262,7 +261,6 @@ async def no_answer(request: Request):
             headers=debtor['_headers']
         )
     response = VoiceResponse()
-    response.say("Dhanyawad. Hum baad mein call karenge.", voice='Polly.Aditi', language='hi-IN')
     response.hangup()
     return PlainTextResponse(str(response), media_type="application/xml")
 
@@ -403,7 +401,7 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
         gather = Gather(
             input='speech dtmf',
             action='https://debt-bot-production-57d7.up.railway.app/respond',
-            timeout=5,
+            timeout=2,
             speech_timeout='auto',
             method='POST'
         )
