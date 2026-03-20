@@ -21,6 +21,7 @@ async def make_exotel_call(to: str, url: str) -> dict:
     api_key    = os.getenv("EXOTEL_API_KEY")
     api_token  = os.getenv("EXOTEL_API_TOKEN")
     from_number = os.getenv("EXOTEL_PHONE_NUMBER", "09513886363")
+    app_id      = os.getenv("EXOTEL_APP_ID", "1207913")
 
     exotel_url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
 
@@ -31,7 +32,7 @@ async def make_exotel_call(to: str, url: str) -> dict:
             data={
                 "From": to,
                 "CallerId": from_number,
-                "Url": url,
+                "Url": f"http://my.exotel.com/{sid}/exoml/start/{app_id}",
             }
         )
         return response.json()
