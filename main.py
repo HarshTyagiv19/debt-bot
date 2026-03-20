@@ -11,9 +11,31 @@ from datetime import datetime
 load_dotenv()
 
 app = FastAPI()
-twilio_client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
 ai_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 call_states = {}
+
+# ─── Exotel Call Function ─────────────────────────────────────────────────────
+async def make_exotel_call(to: str, url: str) -> dict:
+    """Exotel se outbound call karo."""
+    sid        = os.getenv("EXOTEL_SID")
+    api_key    = os.getenv("EXOTEL_API_KEY")
+    api_token  = os.getenv("EXOTEL_API_TOKEN")
+    from_number = os.getenv("EXOTEL_PHONE_NUMBER", "09513886363")
+
+    exotel_url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            exotel_url,
+            auth=(api_key, api_token),
+            data={
+                "From": to,
+                "CallerId": from_number,
+                "Url": url,
+                "StatusCallback": url.replace("/incoming", "/status"),
+            }
+        )
+        return response.json()
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -230,12 +252,11 @@ async def call_all():
             else:
                 number = f"+{clean}"
             try:
-                call = twilio_client.calls.create(
+                call = await make_exotel_call(
                     to=number,
-                    from_=os.getenv("TWILIO_PHONE_NUMBER"),
                     url="https://debt-bot-production-57d7.up.railway.app/incoming"
                 )
-                called.append(f"Row {row_num} ({name}): {number} — {call.sid}")
+                called.append(f"Row {row_num} ({name}): {number} — {call}")
             except Exception as e:
                 skipped.append(f"Row {row_num} ({name}): {number} — Error: {str(e)}")
         return {"total_called": len(called), "total_skipped": len(skipped), "called": called, "skipped": skipped}
@@ -243,14 +264,13 @@ async def call_all():
         return {"error": str(e)}
 
 @app.get("/test-call")
-def test_call():
+async def test_call():
     try:
-        call = twilio_client.calls.create(
+        result = await make_exotel_call(
             to=os.getenv("MY_PHONE_NUMBER"),
-            from_=os.getenv("TWILIO_PHONE_NUMBER"),
             url="https://debt-bot-production-57d7.up.railway.app/incoming"
         )
-        return {"message": "Call ja rahi hai!", "sid": call.sid}
+        return {"message": "Call ja rahi hai!", "result": result}
     except Exception as e:
         return {"error": str(e)}
 
@@ -288,7 +308,7 @@ async def incoming(request: Request):
         action='https://debt-bot-production-57d7.up.railway.app/respond',
         timeout=10,
         speech_timeout='auto',
-        language='hi-IN',
+        language='hi-IN en-IN',
         method='POST'
     )
     gather.say(intro, voice='Polly.Aditi', language='hi-IN')
@@ -341,23 +361,22 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         debtor = state.get("debtor")
 
         # Language detect karo — customer ki current message se
-        speech_lower = (speech or "").lower().strip()
-        has_devanagari = any(ord(c) > 127 for c in (speech or ""))
-        clear_english_words = ['yes','no','okay','ok','sure','fine','thanks','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can']
-        has_english = any(w in speech_lower.split() for w in clear_english_words)
+        speech_text = (speech or "").strip()
+        speech_lower = speech_text.lower()
+        has_devanagari = any(ord(c) > 2304 and ord(c) < 2432 for c in speech_text)
 
-        if has_devanagari:
+        # Agar Devanagari characters hain — Hindi
+        # Agar sirf ASCII words hain — English
+        # Dono mix hain — English dominant
+        if has_devanagari and not any(c.isascii() and c.isalpha() for c in speech_text):
             is_english = False
-        elif has_english:
+        elif not has_devanagari and any(c.isascii() and c.isalpha() for c in speech_text):
             is_english = True
         else:
+            # Mix — previous state rakho
             is_english = state.get("language", "hi") == "en"
 
-        if is_english:
-            state["language"] = "en"
-        else:
-            state["language"] = "hi"
-
+        state["language"] = "en" if is_english else "hi"
         voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
         lang  = 'en-IN'        if is_english else 'hi-IN'
 
