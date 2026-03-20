@@ -17,11 +17,10 @@ call_states = {}
 # ─── Exotel Call Function ─────────────────────────────────────────────────────
 async def make_exotel_call(to: str, url: str) -> dict:
     """Exotel se outbound call karo."""
-    sid        = os.getenv("EXOTEL_SID")
-    api_key    = os.getenv("EXOTEL_API_KEY")
-    api_token  = os.getenv("EXOTEL_API_TOKEN")
+    sid         = os.getenv("EXOTEL_SID")
+    api_key     = os.getenv("EXOTEL_API_KEY")
+    api_token   = os.getenv("EXOTEL_API_TOKEN")
     from_number = os.getenv("EXOTEL_PHONE_NUMBER", "09513886363")
-    app_id      = os.getenv("EXOTEL_APP_ID", "1207913")
 
     exotel_url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
 
@@ -32,9 +31,13 @@ async def make_exotel_call(to: str, url: str) -> dict:
             data={
                 "From": to,
                 "CallerId": from_number,
-                "Url": f"http://my.exotel.com/{sid}/exoml/start/{app_id}",
+                "Url": "https://debt-bot-production-57d7.up.railway.app/incoming",
+                "StatusCallback": "https://debt-bot-production-57d7.up.railway.app/status",
+                "Method": "POST",
+                "StatusCallbackMethod": "POST",
             }
         )
+        print(f"Exotel response: {response.status_code} {response.text}")
         return response.json()
 
 SCOPES = [
