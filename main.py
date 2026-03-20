@@ -21,20 +21,19 @@ async def make_exotel_call(to: str, url: str) -> dict:
     api_key     = os.getenv("EXOTEL_API_KEY")
     api_token   = os.getenv("EXOTEL_API_TOKEN")
     from_number = os.getenv("EXOTEL_PHONE_NUMBER", "09513886363")
+    app_id      = os.getenv("EXOTEL_APP_ID", "1207913")
 
-    exotel_url = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
+    exotel_api  = f"https://api.exotel.com/v1/Accounts/{sid}/Calls/connect.json"
+    exoml_url   = f"http://my.exotel.com/{sid}/exoml/start/{app_id}"
 
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
-            exotel_url,
+            exotel_api,
             auth=(api_key, api_token),
             data={
-                "From": to,
+                "From":     to,
                 "CallerId": from_number,
-                "Url": "https://debt-bot-production-57d7.up.railway.app/incoming",
-                "StatusCallback": "https://debt-bot-production-57d7.up.railway.app/status",
-                "Method": "POST",
-                "StatusCallbackMethod": "POST",
+                "Url":      exoml_url,
             }
         )
         print(f"Exotel response: {response.status_code} {response.text}")
