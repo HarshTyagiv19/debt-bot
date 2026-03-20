@@ -147,31 +147,6 @@ def update_sheet_after_call(row_index: int, remark: str, status: str, headers: l
         print(f"Sheet update error: {e}")
 
 
-async def deepgram_transcribe(audio_url: str) -> dict:
-    """Deepgram se audio transcribe karo — Hindi aur English dono."""
-    api_key = os.getenv("DEEPGRAM_API_KEY")
-    if not api_key:
-        return {"text": "", "language": "hi"}
-    
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                "https://api.deepgram.com/v1/listen?model=nova-2&language=multi&detect_language=true&punctuate=true&smart_format=true",
-                headers={
-                    "Authorization": f"Token {api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={"url": audio_url}
-            )
-            data = response.json()
-            transcript = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "")
-            detected_lang = data.get("results", {}).get("channels", [{}])[0].get("detected_language", "hi")
-            return {"text": transcript, "language": detected_lang}
-    except Exception as e:
-        print(f"Deepgram error: {e}")
-        return {"text": "", "language": "hi"}
-
-
 @app.get("/")
 def home():
     return {"status": "Aditi bot chal rahi hai!", "time": datetime.now().isoformat()}
@@ -215,7 +190,7 @@ async def call_all():
         for row_num, row in enumerate(all_rows[1:], start=2):
             mobile = str(row[mobile_idx]).strip() if mobile_idx < len(row) else ''
             status = str(row[status_idx]).strip() if status_idx and status_idx < len(row) else ''
-            name   = str(row[name_idx]).strip()   if name_idx   and name_idx   < len(row) else ''
+            name   = str(row[name_idx]).strip()   if name_idx and name_idx < len(row) else ''
             if not mobile or mobile in ('0', 'NULL', 'None', ''):
                 skipped.append(f"Row {row_num}: number nahi")
                 continue
@@ -293,7 +268,7 @@ async def incoming(request: Request):
     )
     gather.say(intro, voice='Polly.Aditi', language='hi-IN')
     response.append(gather)
-    response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
+    response.hangup()
     return PlainTextResponse(str(response), media_type="application/xml")
 
 
@@ -328,10 +303,7 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         form     = await request.form()
         call_sid = form.get("CallSid", "unknown")
         caller   = form.get("From", "")
-
-        # Deepgram se transcribe karo
-        recording_url = form.get("RecordingUrl", "")
-        speech = form.get("SpeechResult", "")
+        speech   = form.get("SpeechResult", "")
 
         if call_sid not in call_states:
             debtor = get_debtor_by_phone(caller) if caller else None
@@ -340,7 +312,7 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         state  = call_states[call_sid]
         debtor = state.get("debtor")
 
-        # Language detect karo — customer ki current message se
+        # Language detect
         speech_lower = (speech or "").lower().strip()
         has_devanagari = any(ord(c) > 127 for c in (speech or ""))
         clear_english_words = ['yes','no','okay','ok','sure','fine','thanks','hello','hi','speak','english','cant','dont','have','not','want','money','pay','payment','loan','bank','how','what','when','why','who','will','can']
@@ -353,11 +325,7 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
         else:
             is_english = state.get("language", "hi") == "en"
 
-        if is_english:
-            state["language"] = "en"
-        else:
-            state["language"] = "hi"
-
+        state["language"] = "en" if is_english else "hi"
         voice = 'Polly.Raveena' if is_english else 'Polly.Aditi'
         lang  = 'en-IN'        if is_english else 'hi-IN'
 
@@ -379,8 +347,7 @@ async def respond(request: Request, background_tasks: BackgroundTasks):
             name    = debtor.get('name', 'aap')
             company = debtor.get('company', 'hamare sansthan')
             dpd     = debtor.get('dpd', '')
-
-            lang_instruction = "IMPORTANT: Customer ne abhi jo language boli hai usi mein jawab do. Agar Hindi boli toh Hindi, agar English boli toh English. Language customer follow karo."
+            lang_instruction = "IMPORTANT: Customer ne abhi jo language boli hai usi mein jawab do. Agar Hindi boli toh Hindi, agar English boli toh English."
 
             system_prompt = f"""Tu Aditi hai — {company} ki collection agent.
 {lang_instruction}
@@ -421,16 +388,18 @@ D) Aggressive ya gaali de:
 E) Payment confirm:
    REMARK: Payment confirmed [amount] || STATUS: Paid
 
+F) Conversation khatam — customer ne phone rakhna chaha ya bye bola:
+   "Dhanyawad. Aapka din shubh ho." — phir REMARK: Call ended || STATUS: Contacted
+
 HARD RULES:
-- Amount seedha MAT batao — sirf tab jab customer pooche ya settlement pe aaye
+- Amount seedha MAT batao
 - Rs {final_amt:.0f} se kam kabhi nahi lena
 - Dobara apna introduction mat karna
-- {lang_instruction}
 - Maximum 2 sentences
 - Har jawab ke end mein REMARK: ... || STATUS: ... likhna zaroori hai"""
 
         else:
-            lang_instruction = "IMPORTANT: Customer ne abhi jo language boli hai usi mein jawab do. Agar Hindi boli toh Hindi, agar English boli toh English. Language customer follow karo."
+            lang_instruction = "IMPORTANT: Customer ne abhi jo language boli hai usi mein jawab do."
             system_prompt = f"""Tu Aditi hai — ek professional collection agent.
 Customer ki file system mein nahi mili.
 Unse pooch ki unka naam kya hai aur kis company ka loan hai.
@@ -470,17 +439,26 @@ Har jawab ke end mein: REMARK: [kya hua] || STATUS: Contacted"""
             clean_reply = "Theek hai, note kar liya." if not is_english else "Okay, noted."
 
         response = VoiceResponse()
-        gather = Gather(
-            input='speech dtmf',
-            action='https://debt-bot-production-57d7.up.railway.app/respond',
-            timeout=10,
-            speech_timeout='auto',
-            language=lang,
-            method='POST'
-        )
-        gather.say(clean_reply, voice=voice, language=lang)
-        response.append(gather)
-        response.redirect('https://debt-bot-production-57d7.up.railway.app/no-answer')
+
+        # Agar bye/call end hua toh turant hangup
+        if extracted_status in ("Contacted", "Call ended") and any(
+            w in clean_reply.lower() for w in ['shubh ho', 'dhanyawad', 'goodbye', 'thank you', 'bye']
+        ):
+            response.say(clean_reply, voice=voice, language=lang)
+            response.hangup()
+        else:
+            gather = Gather(
+                input='speech dtmf',
+                action='https://debt-bot-production-57d7.up.railway.app/respond',
+                timeout=10,
+                speech_timeout='auto',
+                language=lang,
+                method='POST'
+            )
+            gather.say(clean_reply, voice=voice, language=lang)
+            response.append(gather)
+            response.hangup()
+
         return PlainTextResponse(str(response), media_type="application/xml")
 
     except Exception as e:
