@@ -32,7 +32,6 @@ async def make_exotel_call(to: str, url: str) -> dict:
                 "From": to,
                 "CallerId": from_number,
                 "Url": url,
-                "StatusCallback": url.replace("/incoming", "/status"),
             }
         )
         return response.json()
@@ -273,6 +272,24 @@ async def test_call():
         return {"message": "Call ja rahi hai!", "result": result}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/status")
+@app.post("/status")
+async def status(request: Request):
+    """Exotel status callback — call connected hone pe /incoming redirect karo."""
+    form = {}
+    try:
+        form = await request.form()
+    except:
+        pass
+    
+    call_status = form.get("Status", "")
+    print(f"Exotel status: {call_status} | form: {dict(form)}")
+    
+    response = VoiceResponse()
+    response.redirect('https://debt-bot-production-57d7.up.railway.app/incoming')
+    return PlainTextResponse(str(response), media_type="application/xml")
 
 
 @app.get("/incoming")
